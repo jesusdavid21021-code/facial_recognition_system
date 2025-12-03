@@ -7,6 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.database import DatabaseManager
+from src.face_detector import FaceDetector
 from src.face_recognition import FaceRecognizer
 from src.training import PhotoCaptureSystem, TrainingSystem
 
@@ -16,9 +17,10 @@ class FacialRecognitionSystem:
     def __init__(self):
         print("Inicializando sistema...")
         self.db = DatabaseManager()
-        self.recognizer = FaceRecognizer()
-        self.capture_system = PhotoCaptureSystem()
-        self.training_system = TrainingSystem()
+        self.detector = FaceDetector()
+        self.recognizer = FaceRecognizer(detector=self.detector)
+        self.capture_system = PhotoCaptureSystem(detector=self.detector)
+        self.training_system = TrainingSystem(detector=self.detector)
         print("✓ Sistema inicializado\n")
     
     def register_and_train_employee(self, nombre, apellido, cargo, edad, num_photos=50):
