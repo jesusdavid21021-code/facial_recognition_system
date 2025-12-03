@@ -21,13 +21,28 @@ class FaceDetector:
     
     def __init__(self):
         print("Inicializando detector facial...")
-        self.app = FaceAnalysis(
-            name=FACE_DETECTION_MODEL,
-            providers=['CPUExecutionProvider']  # Solo CPU
-        )
-        # Tamaño reducido para mejor performance
-        self.app.prepare(ctx_id=-1, det_thresh=DETECTION_THRESHOLD, det_size=(320, 320))
-        print("✓ Detector facial inicializado (CPU optimizado)")
+        providers = ONNX_PROVIDERS or ['CPUExecutionProvider']
+
+        def _initialize_app(selected_providers):
+            app = FaceAnalysis(
+                name=FACE_DETECTION_MODEL,
+                providers=selected_providers
+            )
+            # Tamaño reducido para mejor performance
+            app.prepare(ctx_id=-1, det_thresh=DETECTION_THRESHOLD, det_size=(320, 320))
+            return app
+
+        try:
+            self.app = _initialize_app(providers)
+        except Exception as exc:
+            print(
+                f"Advertencia: no se pudieron usar los providers configurados ({providers}). "
+                f"Usando CPU por defecto. Detalle: {exc}"
+            )
+            self.app = _initialize_app(['CPUExecutionProvider'])
+
+        active_providers = getattr(self.app, 'providers', ['CPUExecutionProvider'])
+        print(f"✓ Detector facial inicializado (providers: {', '.join(active_providers)})")
     
     def detect_faces(self, image):
         """
