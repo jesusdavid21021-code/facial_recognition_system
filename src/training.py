@@ -25,10 +25,10 @@ from src.database import DatabaseManager
 
 class PhotoCaptureSystem:
     """Sistema de captura de fotos para entrenamiento"""
-    
-    def __init__(self):
-        self.detector = FaceDetector()
-        self.db = DatabaseManager()
+
+    def __init__(self, detector=None, db=None):
+        self.detector = detector or FaceDetector()
+        self.db = db or DatabaseManager()
         self.cap = None
     
     def capture_photos_for_employee(self, employee_id, num_photos=PHOTOS_PER_EMPLOYEE):
@@ -208,10 +208,10 @@ class PhotoCaptureSystem:
 
 class TrainingSystem:
     """Sistema de entrenamiento de embeddings"""
-    
-    def __init__(self):
-        self.detector = FaceDetector()
-        self.db = DatabaseManager()
+
+    def __init__(self, detector=None, db=None):
+        self.detector = detector or FaceDetector()
+        self.db = db or DatabaseManager()
     
     def train_employee(self, employee_id):
         """
@@ -315,6 +315,7 @@ if __name__ == "__main__":
     print("\n=== SISTEMA DE CAPTURA Y ENTRENAMIENTO ===\n")
     
     db = DatabaseManager()
+    shared_detector = FaceDetector()
     
     # Verificar si hay empleados
     employees = db.get_all_employees()
@@ -327,12 +328,12 @@ if __name__ == "__main__":
         
         if emp_id:
             # Capturar fotos
-            capture_system = PhotoCaptureSystem()
+            capture_system = PhotoCaptureSystem(detector=shared_detector)
             success = capture_system.capture_photos_for_employee(emp_id, num_photos=30)
-            
+
             if success:
                 # Entrenar
-                training_system = TrainingSystem()
+                training_system = TrainingSystem(detector=shared_detector)
                 embeddings = training_system.train_employee(emp_id)
                 
                 if embeddings:
@@ -352,14 +353,14 @@ if __name__ == "__main__":
         
         if choice == "1":
             emp_id = int(input("ID del empleado: "))
-            capture_system = PhotoCaptureSystem()
+            capture_system = PhotoCaptureSystem(detector=shared_detector)
             capture_system.capture_photos_for_employee(emp_id)
-        
+
         elif choice == "2":
             emp_id = int(input("ID del empleado: "))
-            training_system = TrainingSystem()
+            training_system = TrainingSystem(detector=shared_detector)
             training_system.train_employee(emp_id)
-        
+
         elif choice == "3":
-            training_system = TrainingSystem()
+            training_system = TrainingSystem(detector=shared_detector)
             training_system.train_all_employees()

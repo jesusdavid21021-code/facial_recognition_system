@@ -19,10 +19,10 @@ from src.database import DatabaseManager
 
 class FaceRecognizer:
     """Sistema de reconocimiento facial"""
-    
-    def __init__(self):
-        self.detector = FaceDetector()
-        self.db = DatabaseManager()
+
+    def __init__(self, detector=None, db=None):
+        self.detector = detector or FaceDetector()
+        self.db = db or DatabaseManager()
         self.embeddings_db = {}  # {employee_id: [embeddings]}
         self.load_embeddings()
     
