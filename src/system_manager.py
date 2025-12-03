@@ -220,14 +220,37 @@ class FacialRecognitionSystem:
         print(f"\n{'='*60}")
         print(f"ESTADO DEL SISTEMA")
         print(f"{'='*60}\n")
-        
+
         # Estadísticas de base de datos
-        db_stats = self.db.get_statistics()
+        db_stats_raw = self.db.get_statistics() or {}
+
+        def get_first_present(data, candidates, default=0):
+            for key in candidates:
+                if key in data:
+                    return data[key]
+            return default
+
+        db_stats = {
+            "total_empleados": get_first_present(
+                db_stats_raw, ["total_empleados"]
+            ),
+            "accesos_hoy": get_first_present(db_stats_raw, ["accesos_hoy"]),
+            "accesos_permitidos": get_first_present(
+                db_stats_raw, ["accesos_permitidos", "total_permitido"]
+            ),
+            "accesos_denegados": get_first_present(
+                db_stats_raw, ["accesos_denegados", "total_denegado"]
+            ),
+            "accesos_desconocidos": get_first_present(
+                db_stats_raw, ["accesos_desconocidos", "total_desconocidos", "total_desconocido"]
+            ),
+        }
         print("Base de Datos:")
-        print(f"  - Empleados activos: {db_stats.get('total_empleados', 0)}")
-        print(f"  - Accesos hoy: {db_stats.get('accesos_hoy', 0)}")
-        print(f"  - Accesos permitidos: {db_stats.get('total_permitido', 0)}")
-        print(f"  - Accesos denegados: {db_stats.get('total_denegado', 0)}")
+        print(f"  - Empleados activos: {db_stats['total_empleados']}")
+        print(f"  - Accesos hoy: {db_stats['accesos_hoy']}")
+        print(f"  - Accesos permitidos: {db_stats['accesos_permitidos']}")
+        print(f"  - Accesos denegados: {db_stats['accesos_denegados']}")
+        print(f"  - Accesos desconocidos: {db_stats['accesos_desconocidos']}")
         
         # Estadísticas de reconocimiento
         rec_stats = self.recognizer.get_recognition_stats()
