@@ -2,6 +2,7 @@
 """
 Configuración global del sistema de reconocimiento facial
 """
+import json
 import os
 from pathlib import Path
 
@@ -21,9 +22,10 @@ for directory in [EMPLOYEES_DIR, DATABASE_DIR, MODELS_DIR, LOGS_DIR]:
 DATABASE_PATH = DATABASE_DIR / "employees.db"
 EMBEDDINGS_PATH = MODELS_DIR / "embeddings.pkl"
 ACCESS_LOG_PATH = LOGS_DIR / "access_logs.csv"
+PREFERENCES_PATH = DATA_DIR / "preferences.json"
 
 # ==================== CONFIGURACIÓN DE CÁMARA ====================
-CAMERA_INDEX = 1  # 0 para cámara por defecto
+CAMERA_INDEX = 0  # 0 para cámara por defecto
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
@@ -116,6 +118,49 @@ def print_config():
     print(f"Recognition threshold: {RECOGNITION_THRESHOLD}")
     print(f"ONNX Providers: {ONNX_PROVIDERS}")
     print("=" * 60)
+
+
+def load_preferences() -> dict:
+    """Carga las preferencias desde disco si existen."""
+
+    if not PREFERENCES_PATH.exists():
+        return {}
+
+    try:
+        with open(PREFERENCES_PATH, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def save_preferences(preferences: dict) -> None:
+    """Guarda las preferencias en disco (crea el archivo si no existe)."""
+
+    try:
+        with open(PREFERENCES_PATH, "w", encoding="utf-8") as f:
+            json.dump(preferences, f, ensure_ascii=False, indent=2)
+    except Exception:
+        # Preferimos no romper el flujo si no se puede guardar
+        pass
+
+
+def get_last_camera_index(default: int = CAMERA_INDEX) -> int:
+    """Devuelve el índice de cámara guardado o el valor por defecto."""
+
+    prefs = load_preferences()
+    try:
+        return int(prefs.get("last_camera_index", default))
+    except Exception:
+        return default
+
+
+def set_last_camera_index(index: int) -> None:
+    """Actualiza el índice de cámara en las preferencias."""
+
+    prefs = load_preferences()
+    prefs["last_camera_index"] = int(index)
+    save_preferences(prefs)
+
 
 if __name__ == "__main__":
     print_config()
