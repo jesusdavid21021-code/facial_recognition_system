@@ -19,6 +19,8 @@ from src.config import (
     THEME,
     RECOGNITION_THRESHOLD,
     CAMERA_INDEX,
+    CAMERA_SCAN_FAIL_STREAK_LIMIT,
+    CAMERA_SCAN_MAX_INDEX,
     CAMERA_WIDTH,
     CAMERA_HEIGHT,
     ACCESS_BLOCK_HOURS,
@@ -312,14 +314,34 @@ class MainApp(ctk.CTk):
         )
         return f"{index} - {size}"
 
-    def _enumerate_cameras(self, max_index: int = 10):
+    def _enumerate_cameras(
+        self,
+        max_index: int = CAMERA_SCAN_MAX_INDEX,
+        fail_streak_limit: int = CAMERA_SCAN_FAIL_STREAK_LIMIT,
+    ):
+        """Recorre los índices de cámara con un tope de fallos consecutivos.
+
+        Algunos drivers (p. ej. cámaras Intel RealSense) imprimen errores a stderr
+        cuando se consulta un índice inexistente. Para evitar el spam, cortamos el
+        escaneo cuando acumulamos `fail_streak_limit` fallos seguidos después de
+        haber encontrado al menos una cámara válida.
+        """
+
         cameras = []
+        consecutive_failures = 0
 
         for idx in range(max_index):
             cap = cv2.VideoCapture(idx)
             if not cap.isOpened():
                 cap.release()
+                consecutive_failures += 1
+
+                if cameras and consecutive_failures >= fail_streak_limit:
+                    break
+
                 continue
+
+            consecutive_failures = 0
 
             width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
             height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)

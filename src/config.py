@@ -29,6 +29,10 @@ CAMERA_INDEX = 0  # 0 para cámara por defecto
 CAMERA_WIDTH = 640
 CAMERA_HEIGHT = 480
 CAMERA_FPS = 30
+# Límite superior de índices a probar al enumerar dispositivos
+CAMERA_SCAN_MAX_INDEX = 10
+# Número de fallos consecutivos antes de detener la enumeración
+CAMERA_SCAN_FAIL_STREAK_LIMIT = 3
 
 # ==================== CONFIGURACIÓN DE CAPTURA ====================
 PHOTOS_PER_EMPLOYEE = 50  # Número de fotos a capturar por empleado
