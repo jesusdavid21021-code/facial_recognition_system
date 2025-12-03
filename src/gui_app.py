@@ -27,6 +27,8 @@ from src.config import (
     COLOR_SUCCESS,
     COLOR_DANGER,
     COLOR_WARNING,
+    get_last_camera_index,
+    set_last_camera_index,
 )
 
 # Silenciar algunos FutureWarning de insightface/numpy
@@ -60,10 +62,13 @@ class MainApp(ctk.CTk):
         self.log_text = None
         self.access_status_label = None
         self.stats_label = None
+        self.camera_combo = None
 
         # Estado interno para mensajes de acceso y desconocidos
         self.access_status_after_id = None
         self.last_unknown_log_ts = 0.0
+        self.selected_camera_index = get_last_camera_index(default=CAMERA_INDEX)
+        self._camera_label_to_index = {}
 
         # Construir UI
         self._build_ui()
@@ -210,6 +215,32 @@ class MainApp(ctk.CTk):
         )
         logs_btn.grid(row=0, column=3, padx=5, pady=5, sticky="ew")
 
+        camera_frame = ctk.CTkFrame(actions_frame)
+        camera_frame.grid(
+            row=1, column=0, columnspan=4, padx=5, pady=(10, 5), sticky="ew"
+        )
+        camera_frame.grid_columnconfigure(1, weight=1)
+
+        ctk.CTkLabel(camera_frame, text="Cámara de captura:").grid(
+            row=0, column=0, padx=5, pady=5, sticky="w"
+        )
+
+        self.camera_combo = ctk.CTkComboBox(
+            camera_frame,
+            values=[],
+            width=260,
+            command=self._on_camera_selected,
+        )
+        self.camera_combo.grid(row=0, column=1, padx=5, pady=5, sticky="ew")
+
+        refresh_cameras_btn = ctk.CTkButton(
+            camera_frame,
+            text="Detectar cámaras",
+            width=140,
+            command=self._refresh_camera_combo,
+        )
+        refresh_cameras_btn.grid(row=0, column=2, padx=5, pady=5)
+
         # Panel inferior: log de eventos + cartel de acceso + stats
         log_frame = ctk.CTkFrame(self)
         log_frame.grid(
@@ -267,6 +298,80 @@ class MainApp(ctk.CTk):
             padx=10,
             pady=(0, 8),
         )
+
+        self._refresh_camera_combo()
+
+    # ------------------------------------------------------------------
+    # Cámaras
+    # ------------------------------------------------------------------
+    def _format_camera_label(self, index: int, width: int | None, height: int | None) -> str:
+        size = (
+            f"{width}x{height}"
+            if width is not None and height is not None
+            else "Resolución desconocida"
+        )
+        return f"{index} - {size}"
+
+    def _enumerate_cameras(self, max_index: int = 10):
+        cameras = []
+
+        for idx in range(max_index):
+            cap = cv2.VideoCapture(idx)
+            if not cap.isOpened():
+                cap.release()
+                continue
+
+            width = cap.get(cv2.CAP_PROP_FRAME_WIDTH)
+            height = cap.get(cv2.CAP_PROP_FRAME_HEIGHT)
+            cap.release()
+
+            if width > 0 and height > 0:
+                cameras.append((idx, int(width), int(height)))
+
+        return cameras
+
+    def _refresh_camera_combo(self):
+        """Detecta cámaras disponibles y actualiza el combo."""
+
+        cameras = self._enumerate_cameras()
+
+        if not cameras:
+            cameras = [(self.selected_camera_index, None, None)]
+
+        self._camera_label_to_index = {}
+        values = []
+        for idx, width, height in cameras:
+            label = self._format_camera_label(idx, width, height)
+            self._camera_label_to_index[label] = idx
+            values.append(label)
+
+        self.camera_combo.configure(values=values)
+
+        selected_label = next(
+            (label for label, idx in self._camera_label_to_index.items() if idx == self.selected_camera_index),
+            values[0],
+        )
+
+        self.selected_camera_index = self._camera_label_to_index.get(
+            selected_label, self.selected_camera_index
+        )
+        self.camera_combo.set(selected_label)
+        set_last_camera_index(self.selected_camera_index)
+
+    def _on_camera_selected(self, choice: str):
+        if not choice:
+            return
+
+        idx = self._camera_label_to_index.get(choice)
+
+        if idx is None:
+            try:
+                idx = int(choice.split("-", 1)[0].strip())
+            except (ValueError, AttributeError):
+                return
+
+        self.selected_camera_index = idx
+        set_last_camera_index(idx)
 
     # ------------------------------------------------------------------
     # Utilidades de log, estadísticas y cartel
@@ -759,15 +864,18 @@ class MainApp(ctk.CTk):
     # Reconocimiento en vivo
     # ------------------------------------------------------------------
     def on_live_recognition(self):
-        """Lanza reconocimiento en vivo usando CAMERA_INDEX."""
-        self._append_log("▶ Iniciando reconocimiento en vivo...")
+        """Lanza reconocimiento en vivo usando la cámara seleccionada."""
+        self._refresh_camera_combo()
+        self._append_log(
+            f"▶ Iniciando reconocimiento en vivo (cámara {self.selected_camera_index})..."
+        )
 
-        cap = cv2.VideoCapture(CAMERA_INDEX)
+        cap = cv2.VideoCapture(self.selected_camera_index)
         if not cap.isOpened():
             messagebox.showerror(
                 "Error",
-                "No se puede abrir la cámara. "
-                "Revisa CAMERA_INDEX en config.py.",
+                "No se puede abrir la cámara seleccionada. "
+                "Verifica la conexión o el índice elegido.",
             )
             self._append_log("✗ No se pudo abrir la cámara.")
             return
