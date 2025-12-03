@@ -19,6 +19,8 @@ from src.config import (
     THEME,
     RECOGNITION_THRESHOLD,
     CAMERA_INDEX,
+    CAMERA_SCAN_FAIL_STREAK_LIMIT,
+    CAMERA_SCAN_MAX_INDEX,
     CAMERA_WIDTH,
     CAMERA_HEIGHT,
     ACCESS_BLOCK_HOURS,
@@ -312,7 +314,11 @@ class MainApp(ctk.CTk):
         )
         return f"{index} - {size}"
 
-    def _enumerate_cameras(self, max_index: int = 10, fail_streak_limit: int = 3):
+    def _enumerate_cameras(
+        self,
+        max_index: int = CAMERA_SCAN_MAX_INDEX,
+        fail_streak_limit: int = CAMERA_SCAN_FAIL_STREAK_LIMIT,
+    ):
         """Recorre los índices de cámara con un tope de fallos consecutivos.
 
         Algunos drivers (p. ej. cámaras Intel RealSense) imprimen errores a stderr
