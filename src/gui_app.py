@@ -11,6 +11,7 @@ import cv2
 import time
 from datetime import datetime
 import warnings
+import re
 
 from src.system_manager import FacialRecognitionSystem
 from src.config import (
@@ -31,6 +32,8 @@ from src.config import (
     COLOR_WARNING,
     get_last_camera_index,
     set_last_camera_index,
+    get_closing_time,
+    set_closing_time,
 )
 
 # Silenciar algunos FutureWarning de insightface/numpy
@@ -79,10 +82,44 @@ class MainApp(ctk.CTk):
         self.refresh_employees()
         # Cargar estadísticas iniciales
         self._refresh_access_stats()
+        self.closing_time_var = tk.StringVar(value=get_closing_time())
 
     # ------------------------------------------------------------------
     # UI
     # ------------------------------------------------------------------
+    def _on_save_closing_time(self):
+        """
+        Guarda la hora de cierre en preferencias (formato HH:MM, 24h).
+        """
+        value = self.closing_time_var.get().strip()
+        
+        # Validar formato básico HH:MM
+        if not re.match(r"^\d{2}:\d{2}$", value):
+            messagebox.showerror(
+                "Hora inválida",
+                "Por favor ingresa la hora en formato HH:MM, por ejemplo 18:30."
+            )
+            return
+        
+        try:
+            hh, mm = map(int, value.split(":"))
+            if not (0 <= hh <= 23 and 0 <= mm <= 59):
+                raise ValueError
+        except ValueError:
+            messagebox.showerror(
+                "Hora inválida",
+                "La hora debe estar entre 00:00 y 23:59."
+            )
+            return
+        
+        # Guardar en preferencias
+        set_closing_time(value)
+        
+        messagebox.showinfo(
+            "Hora de cierre guardada",
+            f"La hora de cierre ha sido establecida en {value}."
+        )
+    
     def _build_ui(self):
         self.grid_columnconfigure(0, weight=1)
         self.grid_columnconfigure(1, weight=2)
@@ -634,14 +671,38 @@ class MainApp(ctk.CTk):
         name_entry.grid(
             row=0, column=1, padx=5, pady=5, sticky="w"
         )
+        
+        # Hora de cierre (HH:MM)
+        closing_label = ctk.CTkLabel(
+            filter_frame,
+            text="Hora de cierre (HH:MM):"
+        )
+        closing_label.grid(row=2, column=0, padx=10, pady=5, sticky="e")
 
+        closing_entry = ctk.CTkEntry(
+            filter_frame,
+            width=80,
+            textvariable=self.closing_time_var
+        )
+        
+        closing_entry.grid(row=2, column=1, padx=10, pady=5, sticky="w")
+          
+        closing_save_btn = ctk.CTkButton(
+            filter_frame,
+            text="Guardar hora",
+            width=100,
+            command=self._on_save_closing_time
+        )
+        
+        closing_save_btn.grid(row=2, column=2, padx=10, pady=5, sticky="w")                                 
+            
         # Tipo de acceso
         ctk.CTkLabel(filter_frame, text="Tipo acceso:").grid(
             row=0, column=2, padx=5, pady=5, sticky="e"
         )
         tipo_combo = ctk.CTkComboBox(
             filter_frame,
-            values=["Todos", "permitido", "denegado", "desconocido"],
+            values=["Todos", "entrada", "salida", "desconocido"],
             width=130,
         )
         tipo_combo.set("Todos")
@@ -834,39 +895,67 @@ class MainApp(ctk.CTk):
     # ------------------------------------------------------------------
     def _decide_access(self, emp_id: int, emp_data: dict, confidence: float):
         """
-        Logica de Negocio Entrada x Salida
-        -SI no hay accesos previos -> ENTRADA
-        -Si el ultimo acceso fue ENTRADA -> SALIDA
-        -Si el ultimo acceso fue SALIDA -> ENTRADA
-        -Si se detecta un nuevo empleado antes de ACCESS_MIN_REENTRY_SECONDS
-        desde el ultimo acceso -> no se registra nada
+        Lógica de Negocio Entrada / Salida
+
+        - Si no hay accesos previos -> ENTRADA
+        - Si el último acceso fue ENTRADA -> SALIDA (mismo día)
+        - Si el último acceso fue SALIDA -> ENTRADA (mismo día)
+        - Si se detecta un mismo empleado antes de ACCESS_MIN_REENTRY_SECONDS
+        desde el último acceso -> no se registra nada
+        - Si el último acceso es de un día anterior -> ENTRADA (nuevo día)
         """
         now = datetime.now()
         last = self.db.get_last_access_for_employee(emp_id)
 
-        if last is not None:
-            last_dt = datetime.strptime(last["fecha_hora"], "%Y-%m-%d %H:%M:%S")
-            delta_sec = (now - last_dt).total_seconds()
-            
-            if delta_sec < ACCESS_MIN_REENTRY_SECONDS:
-                self._append_log(
-                    "ℹ Reconocido de nuevo "
-                    "(Mismo acceso, no se registra): "
-                    f"{emp_data['nombre']} {emp_data['apellido']} "
-                    f"(conf: {confidence:.2%})" 
-                )
-                return
-            
-            last_type = last.get("tipo_acceso", "entrada")
-            if last_type == "salida":
+        # Si no hay último acceso, registramos como entrada
+        if not last:
+            next_event = "entrada"
+        else:
+            # Intentar obtener un datetime a partir del campo fecha_hora
+            last_dt = None
+            last_ts = last.get("fecha_hora")
+
+            if isinstance(last_ts, datetime):
+                last_dt = last_ts
+            elif isinstance(last_ts, str):
+                try:
+                    last_dt = datetime.fromisoformat(last_ts)
+                except Exception:
+                    try:
+                        last_dt = datetime.strptime(last_ts, "%Y-%m-%d %H:%M:%S")
+                    except Exception:
+                        last_dt = None
+
+            # Si no pudimos parsear la fecha, asumimos entrada para evitar bloquear el acceso
+            if last_dt is None:
                 next_event = "entrada"
             else:
-                next_event = "salida"
-        else:
-            next_event = "entrada"
-            
+                # 🟢 Si el último registro es de OTRO día, empezamos un ciclo nuevo
+                if last_dt.date() < now.date():
+                    next_event = "entrada"
+                else:
+                    # Mismo día: aplicamos ventana anti-rebote
+                    delta_sec = (now - last_dt).total_seconds()
+
+                    if delta_sec < ACCESS_MIN_REENTRY_SECONDS:
+                        self._append_log(
+                            "ℹ Reconocido de nuevo "
+                            "(mismo acceso, no se registra): "
+                            f"{emp_data['nombre']} {emp_data['apellido']} "
+                            f"(conf: {confidence:.2%})"
+                        )
+                        return
+
+                    last_type = last.get("tipo_acceso", "entrada")
+                    if last_type == "salida":
+                        next_event = "entrada"
+                    else:
+                        next_event = "salida"
+
+        # Guardar en BD
         self.db.log_access(emp_id, next_event, confidence)
-        
+
+        # Mensajes de interfaz
         if next_event == "entrada":
             self._append_log(
                 f"✓ ENTRADA registrada: "
@@ -879,7 +968,7 @@ class MainApp(ctk.CTk):
                 f"{emp_data['nombre']} {emp_data['apellido']} "
                 f"({confidence:.2%})"
             )
-            
+
         self._show_access_status(next_event, emp_data)
         self._refresh_access_stats()
     # ------------------------------------------------------------------

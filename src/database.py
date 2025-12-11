@@ -3,10 +3,10 @@
 Gestión de base de datos SQLite para empleados y registros de acceso
 """
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 import pandas as pd
-from src.config import DATABASE_PATH, LOG_DATE_FORMAT
+from src.config import DATABASE_PATH, LOG_DATE_FORMAT, get_closing_time
 
 class DatabaseManager:
     """Gestor de base de datos para el sistema de reconocimiento facial"""
@@ -391,3 +391,108 @@ class DatabaseManager:
                         log.get("confianza"),
                     ]
                 )
+
+    def _get_default_report_date(self) -> str:
+        """
+        Devuelve la fecha (YYYY-MM-DD) que se usará para el informe de cierre.
+
+        - Si el informe se genera DESPUÉS de la hora de cierre -> usa hoy.
+        - Si se genera ANTES de la hora de cierre (por la mañana) -> usa ayer.
+        """
+        now = datetime.now()
+        
+        try:
+            closing_str = get_closing_time()
+            hh, mm = map(int, closing_str.split(":"))
+            closing_today = now.replace(hour=hh, minute=mm, second=0, microsecond=0)
+        except Exception:
+            # Fallback: cierre casi a medianoche
+            closing_today = now.replace(hour=23, minute=59, second=0, microsecond=0)
+
+        if now >= closing_today:
+            report_date = now.date()
+        else:
+            report_date = now.date() - timedelta(days=1)
+
+        return report_date.strftime("%Y-%m-%d")
+
+    def get_employees_with_open_entry(self, date_str: str | None = None):
+        """
+        Devuelve una lista de empleados cuya ÚLTIMA marca del día es ENTRADA,
+        es decir, no registraron SALIDA en esa jornada.
+
+        - date_str: 'YYYY-MM-DD'. Si es None, se usa la fecha calculada
+          por _get_default_report_date() según la hora de cierre.
+        """
+        if date_str is None:
+            date_str = self._get_default_report_date()
+            
+        conn = self.get_connection()
+        conn.row_factory = sqlite3.Row
+        cursor = conn.cursor()
+        
+        cursor.execute(
+            """
+            SELECT al.id,
+                al.employee_id,
+                al.fecha_hora,
+                al.tipo_acceso,
+                al.confianza,
+                e.nombre,
+                e.apellido,
+                e.cargo
+            FROM access_logs al
+            JOIN (
+                -- Último registro (entrada/salida) por empleado en esa fecha
+                SELECT employee_id, MAX(fecha_hora) AS max_fecha
+                FROM access_logs
+                WHERE date(fecha_hora) = ?
+                  AND tipo_acceso IN ('entrada', 'salida')
+                GROUP BY employee_id
+            ) t
+              ON al.employee_id = t.employee_id
+             AND al.fecha_hora = t.max_fecha
+            JOIN employees e ON e.id = al.employee_id
+            WHERE al.tipo_acceso = 'entrada'
+            ORDER BY e.apellido, e.nombre
+            """,
+            (date_str,),
+        )
+        
+        rows = cursor.fetchall()
+        conn.close()
+        return [dict(r) for r in rows]
+
+    def export_open_entries_report(self, filename: str, date_str: str | None = None):
+        """
+        Exporta a CSV el informe de empleados que no registraron salida.
+        """
+        import csv
+        
+        rows = self.get_employees_with_open_entry(date_str)
+        
+        with open(filename, "w", newline="", encoding="utf-8") as f:
+            writer = csv.writer(f, delimiter=";")
+            writer.writerow(
+                [
+                    "employee_id",
+                    "nombre",
+                    "apellido",
+                    "cargo",
+                    "fecha_ultima_entrada",
+                    "confianza",
+                ]
+            )
+            for r in rows:
+                writer.writerow(
+                    [
+                        r.get("employee_id"),
+                        r.get("nombre"),
+                        r.get("apellido"),
+                        r.get("cargo"),
+                        r.get("fecha_hora"),
+                        f"{r.get('confianza', 0):.4f}",
+                    ]
+                )
+                
+        

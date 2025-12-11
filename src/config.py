@@ -5,9 +5,19 @@ Configuración global del sistema de reconocimiento facial
 import json
 import os
 from pathlib import Path
+import sys
 
+def get_base_dir() -> Path:
+    # Si estamos congelados (PyInstaller)
+    if getattr(sys, "frozen", False):
+        # Carpeta temporal donde PyInstaller extrae los archivos
+        return Path(sys._MEIPASS)  # type: ignore[attr-defined]
+    else:
+        # Modo normal (desde código fuente)
+        return Path(__file__).resolve().parent.parent
 # ==================== RUTAS DEL PROYECTO ====================
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = get_base_dir()
+
 DATA_DIR = BASE_DIR / "data"
 EMPLOYEES_DIR = DATA_DIR / "employees"
 DATABASE_DIR = DATA_DIR / "database"
@@ -78,7 +88,7 @@ ACCESS_MIN_REENTRY_SECONDS = 60  # 1 minuto
 
 # Cada cuántos segundos se registra un rostro desconocido para no llenar la base de datos
 UNKNOWN_LOG_INTERVAL = 10
-
+DEFAULT_CLOSING_TIME = "23:50"
 
 # ==================== CONFIGURACIÓN DE LOGS ====================
 LOG_DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
@@ -147,6 +157,25 @@ def save_preferences(preferences: dict) -> None:
         # Preferimos no romper el flujo si no se puede guardar
         pass
 
+def get_closing_time(default: str = DEFAULT_CLOSING_TIME) -> str:
+    """
+    Devuelve la hora de cierre configurada (HH:MM).
+    Si no hay valor guardado, usa DEFAULT_CLOSING_TIME.
+    """
+    prefs = load_preferences()
+    value = prefs.get("closing_time", default)
+    if isinstance(value, str) and len(value) == 5 and value[2] == ":":
+        return value
+    return default
+
+def set_closing_time(value: str) -> None:
+    """
+    Guarda la hora de cierre (formato HH:MM).
+    No lanza excepción si hay error.
+    """
+    prefs = load_preferences()
+    prefs["closing_time"] = value
+    save_preferences(prefs)
 
 def get_last_camera_index(default: int = CAMERA_INDEX) -> int:
     """Devuelve el índice de cámara guardado o el valor por defecto."""

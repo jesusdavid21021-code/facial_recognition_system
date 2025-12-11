@@ -5,6 +5,7 @@ Sistema de reconocimiento facial usando embeddings
 import pickle
 import numpy as np
 from pathlib import Path
+from sklearn.metrics.pairwise import cosine_similarity
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -24,19 +25,6 @@ class FaceRecognizer:
         self.db = db or DatabaseManager()
         self.embeddings_db = {}  # {employee_id: [embeddings]}
         self.load_embeddings()
-
-    @staticmethod
-    def _normalize_embedding(embedding):
-        """Normalizar un embedding para usar similitud coseno."""
-        embedding = np.asarray(embedding)
-        norm = np.linalg.norm(embedding)
-        if norm == 0:
-            return embedding
-        return embedding / norm
-
-    def _normalize_embeddings(self, embeddings):
-        """Normalizar una lista de embeddings."""
-        return [self._normalize_embedding(emb) for emb in embeddings]
     
     def load_embeddings(self):
         """Cargar embeddings guardados"""
@@ -61,7 +49,7 @@ class FaceRecognizer:
             employee_id: ID del empleado
             embeddings: Lista de embeddings (numpy arrays)
         """
-        self.embeddings_db[employee_id] = self._normalize_embeddings(embeddings)
+        self.embeddings_db[employee_id] = embeddings
         self.save_embeddings()
         print(f"✓ Embeddings agregados para empleado {employee_id}: {len(embeddings)} fotos")
     
@@ -84,27 +72,25 @@ class FaceRecognizer:
         """
         if not self.embeddings_db:
             return None, 0, None
-
+        
         best_match_id = None
         best_similarity = 0
-
-        normalized_face = self._normalize_embedding(face_embedding)
-
+        
         # Comparar con cada empleado
         for employee_id, stored_embeddings in self.embeddings_db.items():
-            if not stored_embeddings:
-                continue
-
-            normalized_embeddings = self._normalize_embeddings(stored_embeddings)
-            embeddings_matrix = np.stack(normalized_embeddings)
-
-            # Producto punto para similitudes coseno (embeddings normalizados)
-            similarities = embeddings_matrix @ normalized_face
+            # Calcular similitud con cada embedding del empleado
+            similarities = []
+            for stored_emb in stored_embeddings:
+                # Similitud coseno (entre -1 y 1, normalizado a 0-1)
+                sim = cosine_similarity(
+                    face_embedding.reshape(1, -1),
+                    stored_emb.reshape(1, -1)
+                )[0][0]
+                similarities.append(sim)
             
             # Tomar el promedio de las mejores similitudes
-            top_k = min(5, similarities.shape[0])
-            top_similarities = np.partition(similarities, -top_k)[-top_k:]
-            avg_similarity = float(np.mean(top_similarities))
+            top_similarities = sorted(similarities, reverse=True)[:5]
+            avg_similarity = np.mean(top_similarities)
             
             # Actualizar mejor match
             if avg_similarity > best_similarity:
