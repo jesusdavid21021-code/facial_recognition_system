@@ -10,6 +10,7 @@ from src.database import DatabaseManager
 from src.face_detector import FaceDetector
 from src.face_recognition import FaceRecognizer
 from src.training import PhotoCaptureSystem, TrainingSystem
+from src.config import PHOTOS_PER_EMPLOYEE
 
 class FacialRecognitionSystem:
     """Gestor principal del sistema de reconocimiento facial"""
@@ -23,7 +24,15 @@ class FacialRecognitionSystem:
         self.training_system = TrainingSystem(detector=self.detector)
         print("✓ Sistema inicializado\n")
     
-    def register_and_train_employee(self, nombre, apellido, cargo, edad, num_photos=50):
+    def register_and_train_employee(
+        self,
+        nombre,
+        apellido,
+        cargo,
+        edad,
+        num_photos=50,
+        camera_index=None,
+    ):
         """
         Registrar un nuevo empleado y entrenar su reconocimiento
         
@@ -37,6 +46,9 @@ class FacialRecognitionSystem:
         Returns:
             bool: True si el proceso fue exitoso
         """
+        if num_photos is None:
+            num_photos = PHOTOS_PER_EMPLOYEE
+
         print(f"\n{'='*60}")
         print(f"REGISTRO Y ENTRENAMIENTO DE NUEVO EMPLEADO")
         print(f"{'='*60}\n")
@@ -53,7 +65,9 @@ class FacialRecognitionSystem:
         
         # 2. Capturar fotos
         print("Paso 2: Capturando fotos...")
-        success = self.capture_system.capture_photos_for_employee(employee_id, num_photos)
+        success = self.capture_system.capture_photos_for_employee(
+            employee_id, num_photos, camera_index=camera_index
+        )
         
         if not success:
             print("✗ Error en captura de fotos")
@@ -82,7 +96,7 @@ class FacialRecognitionSystem:
         
         return True
     
-    def retrain_employee(self, employee_id, num_photos=50):
+    def retrain_employee(self, employee_id, num_photos=50, camera_index=None):
         """
         Re-entrenar un empleado existente
         
@@ -93,6 +107,9 @@ class FacialRecognitionSystem:
         Returns:
             bool: True si el proceso fue exitoso
         """
+        if num_photos is None:
+            num_photos = PHOTOS_PER_EMPLOYEE
+
         employee = self.db.get_employee(employee_id)
         if not employee:
             print(f"✗ Error: Empleado {employee_id} no encontrado")
@@ -104,7 +121,9 @@ class FacialRecognitionSystem:
         
         # Capturar nuevas fotos
         print("Capturando nuevas fotos...")
-        success = self.capture_system.capture_photos_for_employee(employee_id, num_photos)
+        success = self.capture_system.capture_photos_for_employee(
+            employee_id, num_photos, camera_index=camera_index
+        )
         
         if not success:
             return False

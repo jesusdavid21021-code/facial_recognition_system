@@ -31,7 +31,12 @@ class PhotoCaptureSystem:
         self.db = db or DatabaseManager()
         self.cap = None
     
-    def capture_photos_for_employee(self, employee_id, num_photos=PHOTOS_PER_EMPLOYEE):
+    def capture_photos_for_employee(
+        self,
+        employee_id,
+        num_photos=PHOTOS_PER_EMPLOYEE,
+        camera_index: int | None = None,
+    ):
         """
         Capturar fotos de un empleado para entrenamiento
         
@@ -69,9 +74,15 @@ class PhotoCaptureSystem:
 
         
         # Inicializar cámara
-        self.cap = cv2.VideoCapture(CAMERA_INDEX)
+        if camera_index is None:
+            camera_index = CAMERA_INDEX
+
+        self.cap = cv2.VideoCapture(camera_index)
         if not self.cap.isOpened():
-            print("✗ Error: No se puede acceder a la cámara")
+            print(
+                "✗ Error: No se puede acceder a la cámara seleccionada "
+                f"(índice {camera_index})"
+            )
             return False
         
         # Configurar cámara
