@@ -585,6 +585,7 @@ class MainApp(ctk.CTk):
             cargo=cargo,
             edad=edad,
             num_photos=None,
+            camera_index=self.selected_camera_index,
         )
 
         if success:
@@ -606,7 +607,9 @@ class MainApp(ctk.CTk):
             return
 
         self._append_log(f"▶ Re-entrenando empleado ID {emp_id}...")
-        success = self.system.retrain_employee(emp_id)
+        success = self.system.retrain_employee(
+            emp_id, camera_index=self.selected_camera_index
+        )
 
         if success:
             messagebox.showinfo("Éxito", "Empleado re-entrenado correctamente.")
