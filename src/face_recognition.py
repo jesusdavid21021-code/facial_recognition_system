@@ -3,10 +3,11 @@
 Sistema de reconocimiento facial usando embeddings
 """
 import pickle
+import cv2
 import numpy as np
 from pathlib import Path
-from sklearn.metrics.pairwise import cosine_similarity
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.config import (
@@ -23,15 +24,53 @@ class FaceRecognizer:
     def __init__(self, detector=None, db=None):
         self.detector = detector or FaceDetector()
         self.db = db or DatabaseManager()
-        self.embeddings_db = {}  # {employee_id: [embeddings]}
+        self.embeddings_db: dict[int, np.ndarray] = {}  # {employee_id: embeddings array}
         self.load_embeddings()
+
+    def _normalize_embedding(self, embedding) -> np.ndarray:
+        """Devuelve el embedding normalizado a float32 de tamaño fijo."""
+
+        arr = np.asarray(embedding, dtype=np.float32).reshape(-1)
+        if arr.size != EMBEDDING_SIZE:
+            raise ValueError("Embedding con tamaño inválido")
+
+        norm = np.linalg.norm(arr)
+        if norm > 0:
+            arr = arr / norm
+        return arr
+
+    def _normalize_embedding_list(self, embeddings) -> np.ndarray | None:
+        normalized: list[np.ndarray] = []
+
+        for emb in embeddings:
+            try:
+                normalized.append(self._normalize_embedding(emb))
+            except ValueError:
+                continue
+
+        if not normalized:
+            return None
+
+        return np.vstack(normalized)
     
     def load_embeddings(self):
         """Cargar embeddings guardados"""
         if EMBEDDINGS_PATH.exists():
             with open(EMBEDDINGS_PATH, 'rb') as f:
-                self.embeddings_db = pickle.load(f)
-            print(f"✓ Embeddings cargados: {len(self.embeddings_db)} empleados")
+                raw_db = pickle.load(f)
+
+            loaded = 0
+            cleaned_db: dict[int, np.ndarray] = {}
+            for emp_id, embeddings in raw_db.items():
+                normalized = self._normalize_embedding_list(embeddings)
+                if normalized is None:
+                    continue
+
+                cleaned_db[int(emp_id)] = normalized
+                loaded += 1
+
+            self.embeddings_db = cleaned_db
+            print(f"✓ Embeddings cargados: {loaded} empleados")
         else:
             print("⚠ No hay embeddings guardados. Ejecuta entrenamiento primero.")
     
@@ -49,9 +88,16 @@ class FaceRecognizer:
             employee_id: ID del empleado
             embeddings: Lista de embeddings (numpy arrays)
         """
-        self.embeddings_db[employee_id] = embeddings
+        normalized = self._normalize_embedding_list(embeddings)
+        if normalized is None:
+            raise ValueError("No se recibieron embeddings válidos")
+
+        self.embeddings_db[int(employee_id)] = normalized
         self.save_embeddings()
-        print(f"✓ Embeddings agregados para empleado {employee_id}: {len(embeddings)} fotos")
+        print(
+            f"✓ Embeddings agregados para empleado {employee_id}: "
+            f"{normalized.shape[0]} fotos"
+        )
     
     def remove_employee_embeddings(self, employee_id):
         """Eliminar embeddings de un empleado"""
@@ -71,37 +117,38 @@ class FaceRecognizer:
             tuple: (employee_id, confidence, employee_data) o (None, 0, None)
         """
         if not self.embeddings_db:
-            return None, 0, None
-        
+            return None, 0.0, None
+
+        try:
+            target = self._normalize_embedding(face_embedding)
+        except ValueError:
+            return None, 0.0, None
+
         best_match_id = None
-        best_similarity = 0
-        
-        # Comparar con cada empleado
+        best_similarity = 0.0
+
         for employee_id, stored_embeddings in self.embeddings_db.items():
-            # Calcular similitud con cada embedding del empleado
-            similarities = []
-            for stored_emb in stored_embeddings:
-                # Similitud coseno (entre -1 y 1, normalizado a 0-1)
-                sim = cosine_similarity(
-                    face_embedding.reshape(1, -1),
-                    stored_emb.reshape(1, -1)
-                )[0][0]
-                similarities.append(sim)
-            
-            # Tomar el promedio de las mejores similitudes
-            top_similarities = sorted(similarities, reverse=True)[:5]
-            avg_similarity = np.mean(top_similarities)
-            
-            # Actualizar mejor match
+            if stored_embeddings.size == 0:
+                continue
+
+            similarities = stored_embeddings @ target
+
+            if similarities.size == 0:
+                continue
+
+            top_count = min(5, similarities.size)
+            # np.partition evita ordenar todo el array
+            top_scores = np.partition(similarities, -top_count)[-top_count:]
+            avg_similarity = float(np.mean(top_scores))
+
             if avg_similarity > best_similarity:
                 best_similarity = avg_similarity
                 best_match_id = employee_id
-        
-        # Verificar si supera el umbral
-        if best_similarity >= RECOGNITION_THRESHOLD:
+
+        if best_match_id is not None and best_similarity >= RECOGNITION_THRESHOLD:
             employee_data = self.db.get_employee(best_match_id)
             return best_match_id, best_similarity, employee_data
-        
+
         return None, best_similarity, None
     
     def recognize_faces_in_frame(self, frame):
@@ -154,7 +201,7 @@ class FaceRecognizer:
         """Obtener estadísticas del sistema de reconocimiento"""
         stats = {
             'total_employees_trained': len(self.embeddings_db),
-            'total_embeddings': sum(len(embs) for embs in self.embeddings_db.values()),
+            'total_embeddings': sum(embs.shape[0] for embs in self.embeddings_db.values()),
             'avg_embeddings_per_employee': 0,
             'threshold': RECOGNITION_THRESHOLD
         }

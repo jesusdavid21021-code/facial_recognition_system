@@ -3,6 +3,7 @@
 Gestor principal del sistema - Integra todos los módulos
 """
 import sys
+import shutil
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -10,7 +11,7 @@ from src.database import DatabaseManager
 from src.face_detector import FaceDetector
 from src.face_recognition import FaceRecognizer
 from src.training import PhotoCaptureSystem, TrainingSystem
-from src.config import PHOTOS_PER_EMPLOYEE
+from src.config import PHOTOS_PER_EMPLOYEE, get_employee_photo_dir
 
 class FacialRecognitionSystem:
     """Gestor principal del sistema de reconocimiento facial"""
@@ -68,10 +69,13 @@ class FacialRecognitionSystem:
         success = self.capture_system.capture_photos_for_employee(
             employee_id, num_photos, camera_index=camera_index
         )
-        
+
         if not success:
             print("✗ Error en captura de fotos")
             self.db.delete_employee(employee_id)
+            photo_dir = get_employee_photo_dir(employee_id)
+            if photo_dir.exists():
+                shutil.rmtree(photo_dir, ignore_errors=True)
             return False
         
         # 3. Entrenar embeddings

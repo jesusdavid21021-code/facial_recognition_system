@@ -74,6 +74,7 @@ class MainApp(ctk.CTk):
         self.last_unknown_log_ts = 0.0
         self.selected_camera_index = get_last_camera_index(default=CAMERA_INDEX)
         self._camera_label_to_index = {}
+        self.closing_time_var = tk.StringVar(value=get_closing_time())
 
         # Construir UI
         self._build_ui()
@@ -82,7 +83,6 @@ class MainApp(ctk.CTk):
         self.refresh_employees()
         # Cargar estadísticas iniciales
         self._refresh_access_stats()
-        self.closing_time_var = tk.StringVar(value=get_closing_time())
 
     # ------------------------------------------------------------------
     # UI
