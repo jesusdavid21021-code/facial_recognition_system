@@ -30,6 +30,13 @@ class PhotoCaptureSystem:
         self.detector = detector or FaceDetector()
         self.db = db or DatabaseManager()
         self.cap = None
+
+    def _cleanup_capture(self):
+        """Libera la cámara y cierra ventanas si están abiertas."""
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
+        cv2.destroyAllWindows()
     
     def capture_photos_for_employee(
         self,
@@ -83,6 +90,7 @@ class PhotoCaptureSystem:
                 "✗ Error: No se puede acceder a la cámara seleccionada "
                 f"(índice {camera_index})"
             )
+            self._cleanup_capture()
             return False
         
         # Configurar cámara
@@ -92,119 +100,138 @@ class PhotoCaptureSystem:
         captured_photos = 0
         capturing = False
         last_capture_time = 0
-        
+        cancelled = False
+        window_name = f'Captura de Fotos - {employee["nombre"]}'
+        session_files: list[Path] = []
+
         print("Esperando para iniciar... (presiona ESPACIO)")
-        
-        while captured_photos < num_photos:
-            ret, frame = self.cap.read()
-            if not ret:
-                print("✗ Error al capturar frame")
-                break
-            
-            # Detectar rostros
-            faces = self.detector.detect_faces(frame)
-            
-            # Mostrar información en el frame
-            display_frame = frame.copy()
-            
-            if len(faces) == 0:
-                # Sin rostros detectados
-                cv2.putText(
-                    display_frame,
-                    "No se detecta rostro - Acercate a la camara",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    2
-                )
-            elif len(faces) > 1:
-                # Múltiples rostros
-                cv2.putText(
-                    display_frame,
-                    "Multiples rostros - Solo debe haber una persona",
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 0, 255),
-                    2
-                )
-            else:
-                # Un rostro detectado - OK
-                face = faces[0]
-                bbox = face.bbox.astype(int)
-                
-                # Dibujar rectángulo verde
+
+        try:
+            while captured_photos < num_photos:
+                ret, frame = self.cap.read()
+                if not ret:
+                    print("✗ Error al capturar frame")
+                    break
+
+                # Detectar rostros
+                faces = self.detector.detect_faces(frame)
+
+                # Mostrar información en el frame
+                display_frame = frame.copy()
+
+                if len(faces) == 0:
+                    # Sin rostros detectados
+                    cv2.putText(
+                        display_frame,
+                        "No se detecta rostro - Acercate a la camara",
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2
+                    )
+                elif len(faces) > 1:
+                    # Múltiples rostros
+                    cv2.putText(
+                        display_frame,
+                        "Multiples rostros - Solo debe haber una persona",
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 0, 255),
+                        2
+                    )
+                else:
+                    # Un rostro detectado - OK
+                    face = faces[0]
+                    bbox = face.bbox.astype(int)
+
+                    # Dibujar rectángulo verde
+                    cv2.rectangle(
+                        display_frame,
+                        (bbox[0], bbox[1]),
+                        (bbox[2], bbox[3]),
+                        (0, 255, 0),
+                        2
+                    )
+
+                    # Si está capturando, guardar foto
+                    if capturing:
+                        current_time = time.time()
+                        if current_time - last_capture_time >= CAPTURE_INTERVAL:
+                            # Extraer y guardar rostro
+                            face_img = self.detector.align_face(frame, face)
+
+                            if face_img.size > 0:
+                                photo_index = start_index + captured_photos
+                                photo_path = photo_dir / f"foto_{photo_index:03d}.jpg"
+                                cv2.imwrite(str(photo_path), face_img)
+                                session_files.append(photo_path)
+                                captured_photos += 1
+                                last_capture_time = current_time
+
+                                print(
+                                    f"✓ Foto {captured_photos}/{num_photos} capturada"
+                                    f"(archivo: {photo_path.name})"
+                                )
+
+                    # Mostrar progreso
+                    status_text = f"Fotos: {captured_photos}/{num_photos}"
+                    if not capturing:
+                        status_text += " - Presiona ESPACIO para iniciar"
+
+                    cv2.putText(
+                        display_frame,
+                        status_text,
+                        (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX,
+                        0.7,
+                        (0, 255, 0),
+                        2
+                    )
+
+                # Barra de progreso
+                progress_width = int((captured_photos / num_photos) * (display_frame.shape[1] - 20))
                 cv2.rectangle(
                     display_frame,
-                    (bbox[0], bbox[1]),
-                    (bbox[2], bbox[3]),
+                    (10, display_frame.shape[0] - 30),
+                    (10 + progress_width, display_frame.shape[0] - 10),
                     (0, 255, 0),
-                    2
+                    -1
                 )
-                
-                # Si está capturando, guardar foto
-                if capturing:
-                    current_time = time.time()
-                    if current_time - last_capture_time >= CAPTURE_INTERVAL:
-                        # Extraer y guardar rostro
-                        face_img = self.detector.align_face(frame, face)
-                        
-                        if face_img.size > 0:
-                            photo_index = start_index + captured_photos
-                            photo_path = photo_dir / f"foto_{photo_index:03d}.jpg"
-                            cv2.imwrite(str(photo_path), face_img)
-                            captured_photos += 1
-                            last_capture_time = current_time
-                            
-                            print(
-                                f"✓ Foto {captured_photos}/{num_photos} capturada"
-                                f"(archivo: {photo_path.name})"
-                            )
-                
-                # Mostrar progreso
-                status_text = f"Fotos: {captured_photos}/{num_photos}"
-                if not capturing:
-                    status_text += " - Presiona ESPACIO para iniciar"
-                
-                cv2.putText(
-                    display_frame,
-                    status_text,
-                    (10, 30),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.7,
-                    (0, 255, 0),
-                    2
-                )
-            
-            # Barra de progreso
-            progress_width = int((captured_photos / num_photos) * (display_frame.shape[1] - 20))
-            cv2.rectangle(
-                display_frame,
-                (10, display_frame.shape[0] - 30),
-                (10 + progress_width, display_frame.shape[0] - 10),
-                (0, 255, 0),
-                -1
-            )
-            
-            # Mostrar frame
-            cv2.imshow(f'Captura de Fotos - {employee["nombre"]}', display_frame)
-            
-            # Controles de teclado
-            key = cv2.waitKey(1) & 0xFF
-            if key == ord(' '):  # ESPACIO - iniciar/pausar
-                capturing = not capturing
-                print("▶ Captura iniciada" if capturing else "⏸ Captura pausada")
-            elif key == ord('q'):  # Q - cancelar
-                print("\n✗ Captura cancelada por el usuario")
-                self.cap.release()
-                cv2.destroyAllWindows()
-                return False
-        
-        # Captura completada
-        self.cap.release()
-        cv2.destroyAllWindows()
-        
+
+                # Mostrar frame
+                cv2.imshow(window_name, display_frame)
+
+                # Cancelar si el usuario cierra la ventana manualmente
+                if cv2.getWindowProperty(window_name, cv2.WND_PROP_VISIBLE) < 1:
+                    print(
+                        "\n✗ Captura cancelada por cierre de ventana"
+                    )
+                    cancelled = True
+                    break
+
+                # Controles de teclado
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord(' '):  # ESPACIO - iniciar/pausar
+                    capturing = not capturing
+                    print("▶ Captura iniciada" if capturing else "⏸ Captura pausada")
+                elif key == ord('q'):  # Q - cancelar
+                    print("\n✗ Captura cancelada por el usuario")
+                    cancelled = True
+                    break
+        finally:
+            self._cleanup_capture()
+
+        if cancelled or captured_photos == 0:
+            for photo_path in session_files:
+                try:
+                    photo_path.unlink(missing_ok=True)
+                except OSError:
+                    pass
+            print("✗ No se capturaron fotos; proceso cancelado")
+            return False
+
         # Actualizar base de datos
         self.db.update_employee_photos(employee_id, captured_photos)
         
